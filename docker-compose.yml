@@ -1,0 +1,26 @@
+version: '3'
+services:
+  db:
+    image: postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 1234
+      POSTGRES_DB: Pagamentos
+    ports:
+      - "5433:5433"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      - db
+    environment:
+      ConnectionStrings__Conexao: "User ID =postgres;Password=1234;Server=host.docker.internal;Port=5433;Database=Pagamentos;Integrated Security=true;Pooling=true"
+      ASPNETCORE_URLS: "http://+:5000"
+    ports:
+      - "5000:5000"
+volumes:
+  db_data:
