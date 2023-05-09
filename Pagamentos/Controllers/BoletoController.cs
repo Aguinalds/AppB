@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using DocumentFormat.OpenXml.Wordprocessing;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OfficeOpenXml;
 using Pagamentos.Context;
@@ -20,46 +21,67 @@ namespace Pagamentos.Controllers
 
         // GET: api/Boleto
         [HttpGet]
-        public ActionResult<IEnumerable<Boleto>> GetBoletos()
+        public ActionResult<IEnumerable<Boleto>> GetBoletos(int pageSize)
         {
-            return _context.Boletos.ToList();
+            var boletos = _context.Boletos
+                .Skip((1 - 1) * pageSize)
+                .Take(pageSize)
+                .OrderBy(x => x.Nome)
+                .ToList();
+
+            return boletos;
         }
+
 
         // POST: api/Boleto/pagar/5
         [HttpPost("PagarBoleto")]
-        public IActionResult PagarBoleto(string cpf,decimal valor)
+        public IActionResult PagarBoletos(int Quantidade)
         {
-            var boleto = _context.Boletos.Find(cpf);
+            var boletos = _context.Boletos
+                .Skip((1 - 1) * Quantidade)
+                .Take(Quantidade)
+                .OrderBy(x => x.Nome)
+                .ToList();
 
-            if (boleto == null)
+            if (boletos == null)
             {
                 return NotFound();
             }
 
-            // Verifica se o boleto está dentro do prazo de pagamento
-            var prazo = boleto.Inclusao.AddDays(2);
-            if (DateTime.Now > prazo)
+            var mensagens = new List<string>();
+
+            try
             {
-                return BadRequest("Boleto fora do prazo de pagamento.");
+                foreach (var item in boletos)
+                {
+                    // Verifica se o boleto está dentro do prazo de pagamento
+                    var prazo = item.Inclusao.AddDays(2);
+                    if (DateTime.Now > prazo)
+                    {
+                        item.Valido = false;
+                    }
+
+                    item.Valor = 0;
+                    if (item.Valor == 0 && item.Valido == true || item.Valido == null)
+                    {
+                        item.Valor = 0;
+                        _context.Entry(item).State = EntityState.Modified;
+                        _context.SaveChanges();
+                        mensagens.Add("Boleto pago do: " + item.Nome + " CPF: " + item.CPF);
+                    }
+                    else
+                    {
+                        mensagens.Add("Erro ao pagar o boleto do: " + item.Nome);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                mensagens.Add("Erro ao processar o pagamento de boletos!");
+                return Ok(mensagens);
             }
 
-            // Processa o pagamento do boleto
-            boleto.Valor -= valor;
-
-            if (boleto.Valor <= 0)
-            {
-                boleto.Valor = 0;          
-                _context.Entry(boleto).State = EntityState.Modified;
-                _context.SaveChanges();
-                return Ok("Boleto pago.");
-            }
-            else
-            {
-                _context.Entry(boleto).State = EntityState.Modified;
-                _context.SaveChanges();
-
-                return Ok("Pagamento processado. Valor restante do boleto: " + boleto.Valor.ToString("C"));
-            }
+            return Ok(mensagens);
         }
 
 
@@ -73,10 +95,10 @@ namespace Pagamentos.Controllers
             using var package = new ExcelPackage(fileInfo);
 
             // Obtém a planilha "Boletos"
-            var worksheet = package.Workbook.Worksheets["Boletos"];
+            var worksheet = package.Workbook.Worksheets["Dados"];
             if (worksheet == null)
             {
-                return BadRequest("A planilha não contém uma aba chamada 'Boletos'.");
+                return BadRequest("A planilha não contém uma aba chamada 'Dados'.");
             }
 
             // Lê os dados da planilha
@@ -162,21 +184,25 @@ namespace Pagamentos.Controllers
         //    return NoContent();
         //}
 
-        //// DELETE: api/Boleto/5
-        //[HttpDelete("{id}")]
-        //public IActionResult DeleteBoleto(string id)
-        //{
-        //    var boleto = _context.Boletos.Find(id);
+        // DELETE: api/Boleto/5
+        [HttpDelete("ExcluirBoletos")]
+        public IActionResult DeleteBoleto()
+        {
+            var boleto = _context.Boletos.ToList();
 
-        //    if (boleto == null)
-        //    {
-        //        return NotFound();
-        //    }
+            if (boleto == null)
+            {
+                return NotFound();
+            }
 
-        //    _context.Boletos.Remove(boleto);
-        //    _context.SaveChanges();
+            foreach (var item in boleto)
+            {
+                _context.Boletos.Remove(item);
+                _context.SaveChanges();
+            }
+         
 
-        //    return NoContent();
-        //}
+            return NoContent();
+        }
     }
 }
