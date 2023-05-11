@@ -4,7 +4,6 @@ using Microsoft.EntityFrameworkCore;
 using OfficeOpenXml;
 using Pagamentos.Context;
 using Pagamentos.Models;
-using System.ComponentModel;
 
 namespace Pagamentos.Controllers
 {
@@ -23,6 +22,10 @@ namespace Pagamentos.Controllers
         [HttpGet]
         public ActionResult<IEnumerable<Boleto>> GetBoletos(int pageSize)
         {
+            if(pageSize <= 0)
+            {
+                return Ok("Informe o número de registros");
+            }
             var boletos = _context.Boletos
                 .Skip((1 - 1) * pageSize)
                 .Take(pageSize)
@@ -32,11 +35,14 @@ namespace Pagamentos.Controllers
             return boletos;
         }
 
-
         // POST: api/Boleto/pagar/5
         [HttpPost("PagarBoleto")]
         public IActionResult PagarBoletos(int Quantidade)
         {
+            if (Quantidade <= 0)
+            {
+                return Ok("Informe a quantidade de boletos para pagar!");
+            }
             var boletos = _context.Boletos
                 .Skip((1 - 1) * Quantidade)
                 .Take(Quantidade)
@@ -59,6 +65,7 @@ namespace Pagamentos.Controllers
                     if (DateTime.Now > prazo)
                     {
                         item.Valido = false;
+                        BoletosNaoValidos(item);
                     }
 
                     item.Valor = 0;
@@ -84,11 +91,30 @@ namespace Pagamentos.Controllers
             return Ok(mensagens);
         }
 
+        private static async void BoletosNaoValidos(Boleto item)
+        {
+            // Faz um POST dos dados para a outra API
+            using (var client = new HttpClient())
+            {
+                var content = new FormUrlEncodedContent(new[]
+                {
+                    new KeyValuePair<string, string>("data", string.Join(",", item))
+                });
+
+                var response = await client.PostAsync("http://sua-api.com/recebe-dados", content);
+
+                var responseString = await response.Content.ReadAsStringAsync();
+
+                Console.WriteLine("Dados enviados com sucesso!");
+            }
+        }
 
         [HttpPost]
         [Route("Import")]
-        public ActionResult ImportarBoletos(string filePath)
+        public ActionResult ImportarBoletos()
         {
+
+            string filePath = @"C:\Users\Pichau\Desktop\BoletosNaoPagos\Boletos.xlsx";
             ExcelPackage.LicenseContext = OfficeOpenXml.LicenseContext.NonCommercial;
             // Abre o arquivo da planilha
             var fileInfo = new FileInfo(filePath);
@@ -200,7 +226,7 @@ namespace Pagamentos.Controllers
                 _context.Boletos.Remove(item);
                 _context.SaveChanges();
             }
-         
+
 
             return NoContent();
         }
