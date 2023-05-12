@@ -11,7 +11,7 @@ namespace Pagamentos.Models
         [Key]
         public string CPF { get; set; }
         public double Matricula { get; set; }
-        public DateTimeOffset Inclusao { get; set; }
+        public DateTime Inclusao { get; set; }
         public bool? Valido { get; set; }
 
     }

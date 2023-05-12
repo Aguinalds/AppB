@@ -223,7 +223,7 @@ namespace Pagamentos.Migrations
                     b.Property<string>("CPF")
                         .HasColumnType("text");
 
-                    b.Property<DateTimeOffset>("Inclusao")
+                    b.Property<DateTime>("Inclusao")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<double>("Matricula")
