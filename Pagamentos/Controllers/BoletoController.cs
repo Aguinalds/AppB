@@ -1,15 +1,13 @@
-﻿using DocumentFormat.OpenXml.Wordprocessing;
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using OfficeOpenXml;
 using Pagamentos.Context;
 using Pagamentos.Models;
-using System.Data.SqlClient;
+using System.Text.RegularExpressions;
 
 namespace Pagamentos.Controllers
 {
     [ApiController]
-    [Route("api/[controller]")]
+    [Route("api/Boletos")]
     public class BoletoController : ControllerBase
     {
         private readonly BancoP _context;
@@ -21,6 +19,7 @@ namespace Pagamentos.Controllers
 
         // GET: api/Boleto
         [HttpGet]
+        [Route("ListarTodosBoletos")]
         public ActionResult<IEnumerable<Boleto>> GetBoletos(int pageSize)
         {
             if (pageSize <= 0)
@@ -38,6 +37,7 @@ namespace Pagamentos.Controllers
 
         // GET: api/Boleto
         [HttpGet]
+        [Route("BoletoInvalidos")]
         public ActionResult<IEnumerable<Boleto>> BoletoInvalidos(int pageSize)
         {
             if (pageSize <= 0)
@@ -55,7 +55,8 @@ namespace Pagamentos.Controllers
         }
 
         // POST: api/Boleto/pagar/5
-        [HttpPost("PagarBoleto")]
+        [HttpPost]
+        [Route("PagarBoleto")]
         public IActionResult PagarBoletos(int Quantidade)
         {
             if (Quantidade <= 0)
@@ -114,56 +115,97 @@ namespace Pagamentos.Controllers
         [Route("LerRemessa")]
         public ActionResult LerRemessa()
         {
+            //DIRETORIO DE ONDE AS REMESSAS SE ENCONTRAM
             string directoryPath = @"C:\Users\Pichau\source\repos\Pagamentos\Pagamentos\BoletoBancario";
-            string remessa = "remessa_0.txt";
-            string filePath = Path.Combine(directoryPath, remessa);
+            string[] files = Directory.GetFiles(directoryPath, "remessa*.txt");
 
-            using (StreamReader reader = new StreamReader(filePath))
+  
+
+
+            var mensagens = new List<string>();
+            foreach (string filePath in files)
             {
-                string[] linhas = reader.ReadToEnd().Split('\n');
-                // "Extraindo" valores das remessas
-                string dia = linhas[0].Substring(143, 2);
-                string mes = linhas[0].Substring(145, 2);
-                string ano = linhas[0].Substring(147, 4);
-                string preco = linhas[2].Substring(86, 12);
-                string centavos = linhas[2].Substring(98, 2);
-                string diaVencimento = linhas[2].Substring(77, 2);
-                string mesVencimento = linhas[2].Substring(79, 2);
-                string anoVencimento = linhas[2].Substring(81, 4);
-                string nomePagador = linhas[3].Substring(33, 40).Trim();
-                string cpf = linhas[3].Substring(19, 14).Trim();
-
-                string nomeBeneficiario = linhas[0].Substring(72, 30).Trim();
-                decimal valorTitulo = decimal.Parse($"{preco},{centavos}");
-
-                string dataBoleto = $"{dia}/{mes}/{ano}";
-                string dataGeracao = $"{dia}/{mes}/{ano}".Trim();
-                string dataVencimento = $"{diaVencimento}/{mesVencimento}/{anoVencimento}".Trim();
-                string valor = $"{valorTitulo}";
-
-                var boleto = new Boleto
+                using (StreamReader reader = new StreamReader(filePath))
                 {
+                    string[] linhas = reader.ReadToEnd().Split('\n');
+                    // "Extraindo" valores das remessas
+                    string dia = linhas[0].Substring(143, 2);
+                    string mes = linhas[0].Substring(145, 2);
+                    string ano = linhas[0].Substring(147, 4);
+                    string preco = linhas[1].Substring(86, 12);
+                    string centavos = linhas[1].Substring(98, 2);
+                    string diaVencimento = linhas[1].Substring(77, 2);
+                    string mesVencimento = linhas[1].Substring(79, 2);
+                    string anoVencimento = linhas[1].Substring(81, 4);
+                    string nomePagador = linhas[2].Substring(33, 40).Trim();
+                    string cpf = linhas[2].Substring(19, 14).Trim();
 
-                    Nome = nomePagador,
-                    Valor = Convert.ToDecimal(valor),
-                    CPF = cpf,
-                    Inclusao = Convert.ToDateTime(dataVencimento).Add(new TimeSpan(12, 30, 45, 500)).ToUniversalTime(),
+                    string nomeBeneficiario = linhas[0].Substring(72, 30).Trim();
+                    if (!preco.EndsWith("."))
+                    {
+                        preco += ".";
+                    }
+                    centavos = centavos.TrimStart('.');
+                    decimal valorTitulo = decimal.Parse($"{preco},{centavos}");
 
-                };
+                    string dataBoleto = $"{dia}/{mes}/{ano}";
+                    string dataGeracao = $"{dia}/{mes}/{ano}".Trim();
+                    string dataVencimento = $"{diaVencimento}/{mesVencimento}/{anoVencimento}".Trim();
+                    string valor = $"{valorTitulo}";
 
-                var existeiguais = _context.Boletos.Where(x => x.CPF == cpf).FirstOrDefault();
-                if (existeiguais != null)
-                {
-                    return BadRequest("Existem CPFS iguais");
-                }
+                    //TRANSFORMA EM OBJETO
+                    var boleto = new Boleto
+                    {
 
-                // Salva os boletos no banco de dados
-                _context.Boletos.Add(boleto);
-                _context.SaveChanges();
+                        Nome = nomePagador,
+                        Valor = Convert.ToDecimal(valor),
+                        CPF = cpf,
+                        Inclusao = Convert.ToDateTime(dataVencimento).Add(new TimeSpan(12, 30, 45, 500)).ToUniversalTime(),
 
-                return Ok("Os boletos foram importados com sucesso.");
+                    };
 
+                    string pattern = @"remessa(\d+)";
+                    string numeroRemessa = "";
+                    Match match = Regex.Match(filePath, pattern);
+                    if (match.Success)
+                    {
+                      numeroRemessa = match.Groups[1].Value;  // Número da remessa, por exemplo, "991"
+                    }
+                    
+
+                    //VEREFICAÇÃO DE CPFS DUPLICADOS
+                    var versetemboletos =  _context.Boletos.ToList();
+                    if (versetemboletos.Count > 0)
+                    {
+                        var existeiguais = _context.Boletos.Where(x => x.CPF == cpf).FirstOrDefault();
+                        if (existeiguais != null)
+                        {
+                            mensagens.Add("Erro ao importar o boleto do: " + boleto.Nome + " CPF: " + boleto.CPF + " Nº: " + numeroRemessa);
+                        }
+                        else
+                        {
+                            // Salva os boletos no banco de dados
+                            mensagens.Add("Boleto importado com Sucesso: " + boleto.Nome + " CPF: " + boleto.CPF + " Nº: " + numeroRemessa);
+                            _context.Boletos.Add(boleto);
+                            _context.SaveChanges();
+                        }
+
+                    }
+                    else
+                    {
+                        // Salva os boletos no banco de dados
+                        mensagens.Add("Boleto importado com Sucesso: " + boleto.Nome + "CPF: " + boleto.CPF);
+                        _context.Boletos.Add(boleto);
+                        _context.SaveChanges();
+                    }
+
+
+
+                }            
             }
+            // Ordena as mensagens em ordem crescente
+            mensagens = mensagens.OrderBy(mensagem => mensagem).ToList();
+            return Ok(mensagens);
         }
 
         //[HttpPost]
@@ -229,7 +271,8 @@ namespace Pagamentos.Controllers
 
         // GET: api/Boleto/5
 
-        [HttpGet("BuscarPorCpf")]
+        [HttpGet]
+        [Route("BuscarPorCpf")]
         public ActionResult<Boleto> GetBoleto(string cpf)
         {
             var boleto = _context.Boletos.Find(cpf);
@@ -269,7 +312,8 @@ namespace Pagamentos.Controllers
 
         // DELETE: api/Boleto/5
 
-        [HttpDelete("ExcluirBoletos")]
+        [HttpDelete]
+        [Route("DeletarTodosBoletos")]
         public IActionResult DeleteBoleto()
         {
             var boleto = _context.Boletos.ToList();
