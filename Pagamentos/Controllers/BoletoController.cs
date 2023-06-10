@@ -2,7 +2,10 @@
 using Microsoft.EntityFrameworkCore;
 using Pagamentos.Context;
 using Pagamentos.Models;
+using RabbitMQ.Client;
+using System.Text;
 using System.Text.RegularExpressions;
+using YourNamespace.Controllers;
 
 namespace Pagamentos.Controllers
 {
@@ -10,10 +13,17 @@ namespace Pagamentos.Controllers
     [Route("api/Boletos")]
     public class BoletoController : ControllerBase
     {
+        public static List<string> Mensagens { get; set; } = new List<string>();
         private readonly BancoP _context;
+        private static readonly string ExchangeName = "ConfirmacaoRecebimento";
+        private readonly IConnection _connection;
+        private readonly IModel _channel;
 
         public BoletoController(BancoP context)
         {
+            var factory = new ConnectionFactory() { HostName = "localhost", Port = 32790 }; // Configure o nome do servidor do RabbitMQ
+            _connection = factory.CreateConnection();
+            _channel = _connection.CreateModel();
             _context = context;
         }
 
@@ -32,7 +42,15 @@ namespace Pagamentos.Controllers
                 .OrderBy(x => x.Nome)
                 .ToList();
 
-            return boletos;
+            int qtdBoletos = boletos.Count;
+
+            var resultado = new
+            {
+                QuantidadeBoletos = qtdBoletos,
+                Boletos = boletos
+            };
+
+            return Ok(resultado);
         }
 
         // GET: api/Boleto
@@ -51,7 +69,42 @@ namespace Pagamentos.Controllers
                 .Where(x => x.Valido == false)
                 .ToList();
 
-            return boletos;
+            int qtdBoletos = boletos.Count;
+
+            var resultado = new
+            {
+                QuantidadeBoletos = qtdBoletos,
+                Boletos = boletos
+            };
+
+            return Ok(resultado);
+        }
+
+        // GET: api/Boleto
+        [HttpGet]
+        [Route("BoletoPagos")]
+        public ActionResult<IEnumerable<Boleto>> BoletoPagos(int pageSize)
+        {
+            if (pageSize <= 0)
+            {
+                return Ok("Informe o número de registros");
+            }
+            var boletos = _context.Boletos
+                .Skip((1 - 1) * pageSize)
+                .Take(pageSize)
+                .OrderBy(x => x.Nome)
+                .Where(x => x.Valido == true)
+                .ToList();
+
+            int qtdBoletos = boletos.Count;
+
+            var resultado = new
+            {
+                QuantidadeBoletos = qtdBoletos,
+                Boletos = boletos
+            };
+
+            return Ok(resultado);
         }
 
         // POST: api/Boleto/pagar/5
@@ -78,25 +131,29 @@ namespace Pagamentos.Controllers
 
             try
             {
-                foreach (var item in boletos)
+                int quantidadeInvalidos = (int)Math.Round(Quantidade * 0.2); // Calcula a quantidade de boletos inválidos
+
+                for (int i = 0; i < boletos.Count; i++)
                 {
+                    var item = boletos[i];
+
                     // Verifica se o boleto está dentro do prazo de pagamento
-                    var prazo = item.Inclusao.AddDays(2);
-                    if (DateTime.Now > prazo)
+                    if (i >= boletos.Count - quantidadeInvalidos)
                     {
                         item.Valido = false;
                     }
-
-                    item.Valor = 0;
-                    if (item.Valor == 0 && item.Valido == true || item.Valido == null)
+                    if (item.Valido == true || item.Valido == null)
                     {
                         item.Valor = 0;
+                        item.Valido = true;
                         _context.Entry(item).State = EntityState.Modified;
                         _context.SaveChanges();
                         mensagens.Add("Boleto pago do: " + item.Nome + " CPF: " + item.CPF);
                     }
                     else
                     {
+                        _context.Entry(item).State = EntityState.Modified;
+                        _context.SaveChanges();
                         mensagens.Add("Erro ao pagar o boleto do: " + item.Nome);
                     }
                 }
@@ -186,6 +243,7 @@ namespace Pagamentos.Controllers
                         {
                             // Salva os boletos no banco de dados
                             mensagens.Add("Boleto importado com Sucesso: " + boleto.Nome + " CPF: " + boleto.CPF + " Nº: " + numeroRemessa);
+         
                             _context.Boletos.Add(boleto);
                             _context.SaveChanges();
                         }
@@ -205,71 +263,31 @@ namespace Pagamentos.Controllers
             }
             // Ordena as mensagens em ordem crescente
             mensagens = mensagens.OrderBy(mensagem => mensagem).ToList();
+            ProduterMessages();
             return Ok(mensagens);
         }
 
-        //[HttpPost]
-        //[Route("Import")]
-        //public ActionResult ImportarBoletos()
-        //{
 
-        //    string filePath = @"C:\Users\Pichau\Desktop\BoletosNaoPagos\Boletos.xlsx";
-        //    ExcelPackage.LicenseContext = OfficeOpenXml.LicenseContext.NonCommercial;
-        //    // Abre o arquivo da planilha
-        //    var fileInfo = new FileInfo(filePath);
-        //    using var package = new ExcelPackage(fileInfo);
+        [HttpPost("Produter")]
+        public IActionResult ProduterMessages()
+        {
+            _channel.QueueDeclare(queue: ExchangeName,
+                     durable: false,
+                     exclusive: false,
+                     autoDelete: false,
+                     arguments: null);
 
-        //    // Obtém a planilha "Boletos"
-        //    var worksheet = package.Workbook.Worksheets["Dados"];
-        //    if (worksheet == null)
-        //    {
-        //        return BadRequest("A planilha não contém uma aba chamada 'Dados'.");
-        //    }
+            var mensagemConfirmacao = "Todas as remessas foram lidas!";
+            var body = Encoding.UTF8.GetBytes(mensagemConfirmacao);
+            _channel.BasicPublish(exchange: "",
+                                 routingKey: ExchangeName,
+                                 basicProperties: null,
+                                 body: body);
 
-        //    // Lê os dados da planilha
-        //    var boletos = new List<Boleto>();
-        //    for (int row = 2; row <= worksheet.Dimension.End.Row; row++)
-        //    {
-        //        var nome = worksheet.Cells[row, 1].GetValue<string>();
-        //        var valor = worksheet.Cells[row, 2].GetValue<string>();
-        //        var cpf = worksheet.Cells[row, 3].GetValue<string>();
-        //        var matricula = worksheet.Cells[row, 4].GetValue<string>();
-        //        var inclusao = worksheet.Cells[row, 5].GetValue<string>();
+            return Ok("Mensagem enviada para confirmação de leitura das Remessas!");
+        }
 
-        //        if (!string.IsNullOrEmpty(cpf)) // Verifica se o CPF não é nulo ou vazio
-        //        {
-        //            var existeiguais = _context.Boletos.Where(x => x.CPF == cpf).FirstOrDefault();
-        //            if (existeiguais != null)
-        //            {
-        //                return BadRequest("Existem CPFS iguais na Planilha");
-        //            }
-        //            valor = valor.Replace("R$", "");
-        //            var boleto = new Boleto
-        //            {
-        //                Nome = nome,
-        //                Valor = Convert.ToDecimal(valor),
-        //                CPF = cpf,
-        //                Matricula = Convert.ToDouble(matricula),
-        //                Inclusao = Convert.ToDateTime(inclusao)
-
-        //            };
-        //            boletos.Add(boleto);
-        //        }
-
-
-        //    }
-
-
-
-        //    // Salva os boletos no banco de dados
-        //    _context.Boletos.AddRangeAsync(boletos);
-        //    _context.SaveChanges();
-
-        //    return Ok("Os boletos foram importados com sucesso.");
-        //}
-
-
-        // GET: api/Boleto/5
+        
 
         [HttpGet]
         [Route("BuscarPorCpf")]
@@ -283,34 +301,7 @@ namespace Pagamentos.Controllers
             }
 
             return boleto;
-        }
-
-        //// POST: api/Boleto
-        //[HttpPost]
-        //public ActionResult<Boleto> PostBoleto(Boleto boleto)
-        //{
-        //    return CreatedAtAction(nameof(GetBoleto), new
-        //    {
-        //        id = boleto.CPF
-        //    }, boleto);
-        //}
-
-        //// PUT: api/Boleto/5
-        //[HttpPut("{id}")]
-        //public IActionResult PutBoleto(string id, Boleto boleto)
-        //{
-        //    if (id != boleto.CPF)
-        //    {
-        //        return BadRequest();
-        //    }
-
-        //    _context.Entry(boleto).State = EntityState.Modified;
-        //    _context.SaveChanges();
-
-        //    return NoContent();
-        //}
-
-        // DELETE: api/Boleto/5
+        }  
 
         [HttpDelete]
         [Route("DeletarTodosBoletos")]

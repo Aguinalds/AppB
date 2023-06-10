@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Pagamentos.Context;
+using Pagamentos.Controllers;
+using YourNamespace.Controllers;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,6 +17,10 @@ builder.Services.AddDbContext<BancoP>(options =>
     options.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
     options.EnableSensitiveDataLogging();
 });
+builder.Services.AddScoped<RabbitMQController>();
+
+builder.Services.AddScoped<BoletoController>();
+
 
 var app = builder.Build();
 
