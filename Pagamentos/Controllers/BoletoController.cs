@@ -15,7 +15,9 @@ namespace Pagamentos.Controllers
     {
         public static List<string> Mensagens { get; set; } = new List<string>();
         private readonly BancoP _context;
-        private static readonly string ExchangeName = "ConfirmacaoRecebimento";
+        private static readonly string ConfirmacaoRecebimento = "ConfirmacaoRecebimento";
+        private static readonly string EnviarBoletoCobranca = "CobrancaDeBoletos";
+
         private readonly IConnection _connection;
         private readonly IModel _channel;
 
@@ -71,6 +73,10 @@ namespace Pagamentos.Controllers
 
             int qtdBoletos = boletos.Count;
 
+            if(qtdBoletos > 0) {
+                ProduterMessagesAppC();
+            }
+          
             var resultado = new
             {
                 QuantidadeBoletos = qtdBoletos,
@@ -263,15 +269,15 @@ namespace Pagamentos.Controllers
             }
             // Ordena as mensagens em ordem crescente
             mensagens = mensagens.OrderBy(mensagem => mensagem).ToList();
-            ProduterMessages();
+            ProduterMessagesAppA();
             return Ok(mensagens);
         }
 
 
-        [HttpPost("Produter")]
-        public IActionResult ProduterMessages()
+        [HttpPost("ProduterAppA")]
+        public IActionResult ProduterMessagesAppA()
         {
-            _channel.QueueDeclare(queue: ExchangeName,
+            _channel.QueueDeclare(queue: ConfirmacaoRecebimento,
                      durable: false,
                      exclusive: false,
                      autoDelete: false,
@@ -280,14 +286,33 @@ namespace Pagamentos.Controllers
             var mensagemConfirmacao = "Todas as remessas foram lidas!";
             var body = Encoding.UTF8.GetBytes(mensagemConfirmacao);
             _channel.BasicPublish(exchange: "",
-                                 routingKey: ExchangeName,
+                                 routingKey: ConfirmacaoRecebimento,
                                  basicProperties: null,
                                  body: body);
 
             return Ok("Mensagem enviada para confirmação de leitura das Remessas!");
         }
 
-        
+        [HttpPost("ProduterAppC")]
+        public IActionResult ProduterMessagesAppC()
+        {
+            _channel.QueueDeclare(queue: EnviarBoletoCobranca,
+                     durable: false,
+                     exclusive: false,
+                     autoDelete: false,
+                     arguments: null);
+
+            var mensagemConfirmacao = "Tem boletos para cobrança!";
+            var body = Encoding.UTF8.GetBytes(mensagemConfirmacao);
+            _channel.BasicPublish(exchange: "",
+                                 routingKey: EnviarBoletoCobranca,
+                                 basicProperties: null,
+                                 body: body);
+
+            return Ok("Mensagem enviada para Cobrança de Boletos!");
+        }
+
+
 
         [HttpGet]
         [Route("BuscarPorCpf")]
