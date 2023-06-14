@@ -269,50 +269,50 @@ namespace Pagamentos.Controllers
             }
             // Ordena as mensagens em ordem crescente
             mensagens = mensagens.OrderBy(mensagem => mensagem).ToList();
-            ProduterMessagesAppA();
+            ExcluirRemessasJaEnviadas();
             return Ok(mensagens);
         }
 
 
-        [HttpPost("ProduterAppA")]
-        public IActionResult ProduterMessagesAppA()
+        public static void ExcluirRemessasJaEnviadas()
         {
-            _channel.QueueDeclare(queue: ConfirmacaoRecebimento,
-                     durable: false,
-                     exclusive: false,
-                     autoDelete: false,
-                     arguments: null);
+            string pasta = "C:/Users/Pichau/source/repos/Pagamentos/Pagamentos/BoletoBancario";
 
-            var mensagemConfirmacao = "Todas as remessas foram lidas!";
-            var body = Encoding.UTF8.GetBytes(mensagemConfirmacao);
-            _channel.BasicPublish(exchange: "",
-                                 routingKey: ConfirmacaoRecebimento,
-                                 basicProperties: null,
-                                 body: body);
+            // Cria um objeto DirectoryInfo para representar a pasta
+            DirectoryInfo pastaInfo = new DirectoryInfo(pasta);
 
-            return Ok("Mensagem enviada para confirmação de leitura das Remessas!");
+            // Verifica se a pasta existe
+            if (pastaInfo.Exists)
+            {
+                // Obtém a lista de arquivos na pasta
+                FileInfo[] arquivos = pastaInfo.GetFiles();
+
+                // Itera sobre os arquivos e exclui os arquivos .txt
+                if (arquivos != null)
+                {
+                    foreach (FileInfo arquivo in arquivos)
+                    {
+                        if (arquivo.Extension == ".txt")
+                        {
+                            try
+                            {
+                                arquivo.Delete();
+                                Console.WriteLine("Arquivo excluído: " + arquivo.Name);
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine("Falha ao excluir o arquivo: " + arquivo.Name);
+                                Console.WriteLine("Erro: " + ex.Message);
+                            }
+                        }
+                    }
+                }
+            }
+            else
+            {
+                Console.WriteLine("A pasta especificada não existe.");
+            }
         }
-
-        [HttpPost("ProduterAppC")]
-        public IActionResult ProduterMessagesAppC()
-        {
-            _channel.QueueDeclare(queue: EnviarBoletoCobranca,
-                     durable: false,
-                     exclusive: false,
-                     autoDelete: false,
-                     arguments: null);
-
-            var mensagemConfirmacao = "Tem boletos para cobrança!";
-            var body = Encoding.UTF8.GetBytes(mensagemConfirmacao);
-            _channel.BasicPublish(exchange: "",
-                                 routingKey: EnviarBoletoCobranca,
-                                 basicProperties: null,
-                                 body: body);
-
-            return Ok("Mensagem enviada para Cobrança de Boletos!");
-        }
-
-
 
         [HttpGet]
         [Route("BuscarPorCpf")]
